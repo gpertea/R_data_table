@@ -18,12 +18,11 @@ Features of the data.table package:
 * fast data reshaping: dcast (pivot/wider/spread) and melt (unpivot/longer/gather)
 
 
-
 Make sure a recent version of dtplyr is also installed:
 `devtools::install_github("tidyverse/dtplyr")`
 
 ```{r}
-library(SummarizedExperiment)
+#library(SummarizedExperiment)
 library(data.table)
 #devtools::install_github("tidyverse/dtplyr") -- if needed
 library(dtplyr)
@@ -32,60 +31,104 @@ library(dtplyr)
 Fast file reader of delimited text files, with inline column selection (not all columns are loaded).
 * can take an url to fetch a remote file, instead of a local file path.
 * can take a linux shell command and use its output as input, e.g.:`fread("fgrep Novel junctions.csv")`
-
+* fread can be up to 5 times faster than read.delim() when loading hundred of files (as it's the case in jaffelab::junctionCount())
 
 ```{r}
-load("data_table/rse_jx_Roche_Habenula_qcAndAnnotated_n69.Rdata")
-rse_jx_hab <- rse_jx
-load("data_table/astellas_dg_hg38_rseJxn_n263.rda")
-rse_jx_dg <- rse_jxn
-rm(rse_jx, rse_jxn)
-gc()
+cd_dlpfc <- fread('https://dev.libd.org/vuk1tgje7i/DLPFC_colData.gz')
+
+head(cd_dlpfc)
 ```
 
 ```{r}
-cd_hab <- as.data.table(colData(rse_jx_hab))
-cd_dg <- as.data.table(colData(rse_jx_dg))
-rd_hab <- as.data.table(rowRanges(rse_jx_hab))
-rd_dg <- as.data.table(rowRanges(rse_jx_dg))
-head(rd_dg)
+#class(cd_dlpfc)
+
+selcols <- c('SAMPLE_ID', 'RNum', 'BrNum', 'Region', 'Dx', 'Age', 'Race', 'Sex', 'RIN', 'numReads', 'overallMapRate',
+             'totalAssignedGene', 'mitoRate', 'rRNA_rate')
+cd_dlpfc <- cd_dlpfc[, ..selcols]
+
+## can also remove unwanted columns in-place, without making a copy
+cd_dlpfc <- fread('https://dev.libd.org/vuk1tgje7i/DLPFC_colData.gz')
+exclude_cols=setdiff(colnames(cd_dlpfc), selcols)
+cd_dlpfc[, (exclude_cols) := NULL]
+## same with:
+##   set(cd_dlpfc, , exclude_cols, NULL)
+
+## can also discard unwanted column while loading the file, to save memory for large tables
+cd_dg <- fread('https://dev.libd.org/vuk1tgje7i/DG_colData.gz', select = selcols, data.table=F)
+class(cd_dg) # it is a data.frame
+## -- transform to data.table in place (without copy)
+setDT(cd_dg)
+#now the class is: "data.table" "data.frame"
+## it is faster than creating a copy: 
+##    cd_dg <- as.data.table(cd_dg)
+#### -- also setDF() to convert back to data.frame, but who needs that?
 ```
 
+```{r}
+selrcols <- c('seqnames', 'start', 'end', 'strand', 'Class', 'newGeneID', 'newGeneSymbol', 'meanExprs')
+rd_dlpfc <- fread('https://dev.libd.org/vuk1tgje7i/DLPFC_rowData.gz', select=selrcols)
+# also supports col.names and colClasses parameters
+
+rd_dg <- fread('https://dev.libd.org/vuk1tgje7i/DG_rowData.gz', select=selrcols)
+
+## data.table::setnames is a nice way to rename some columns, works on data frames too
+# setnames(df or dt, oldnames, newnames)
+newcolnames=c('chr', 'start', 'end', 'strand','class', 'gencodeID', 'gene', 'meanExpr')
+setnames(rd_dg, selrcols, newcolnames)
+setnames(rd_dlpfc, selrcols, newcolnames)
+
+```
 
 Differences from data frames:
 * columns of type character are not converted to factors by default
-* data.table does not support row names 
+* data.table does not support row names! (during conversion, row names can be assigned a new column) 
+* subsetting recognizes column names without the data frame prefix
 
+
+## Column subsetting 
 ```{r}
-head(as.data.frame(rowRanges(rse_jx_dg)))
+
+## subsetting columns:
+head(rd_dg[ , c("chr", "start", "end", "strand")])
+# same with:
+head(rd_dg[ , .(chr, strand, start, end)])
+head(rd_dg[ , list(chr, strand, start, end)])
 ```
 
-
-## setDT() vs as.data.frame()
-
-As opposed to `as.data.frame()`, `setDT()` attaches to a data frame by reference, 
-instead of creating a copy and returning it. 
-
-
+## Adding new columns
 ```{r}
-selcols=c('seqnames', 'start', 'end', 'strand','Class', 'newGeneID', 'newGeneSymbol', 'meanExprs')
-newcolnames=c('chr', 'start', 'end', 'strand','class', 'gencodeID', 'gene', 'meanExpr')
-rd_dg <- rd_dg[, ..selcols]
-setnames(rd_dg, selcols, newcolnames)
+## old data.frame syntax:
+rd_dg$loc = paste0(rd_dg$chr, ':', rd_dg$start, '-', rd_dg$end,  '(',rd_dg$strand,')' )
 
-rd_hab <- rd_hab[, ..selcols]
-setnames(rd_hab, selcols, newcolnames)
+## data.table syntax
+# first let's delete this column in-place
+rd_dg[, loc:=NULL]
+rd_dg[, loc:= paste0(chr,':',start,'-',end,'(',strand,')') ]
+
+## reorder columns such that the new loc column is first
+setcolorder(rd_dg, c('loc', setdiff(colnames(rd_dg), 'loc')))
 
 head(rd_dg)
 
+## - let's do the same for rd_dlpfc
+rd_dlpfc[, loc:= paste0(chr,':',start,'-',end,'(',strand,')') ]
+## reorder columns such that the new loc column is first
+setcolorder(rd_dlpfc, c('loc', setdiff(colnames(rd_dg), 'loc')))
+
+
 ```
 
-## Simple subsetting of columns:
+
+
+
+
+##  Row filtering
 ```{r}
-head(rd_dg[, c("chr", "start", "end", "strand")])
-# same with:
-head(rd_dg[, .(chr, start, end, strand)])
-#
+
+
+## select all novel junctions for gene SNX19
+
+rd_dg[ class!='InGen' & gene=='SNX19' & mean, ]
 
 ```
 
@@ -97,7 +140,7 @@ head(rd_dg[, .(chr, start, end, strand)])
 ```{r}
 table(rd_dg$Class)
 ## get all junctions of Class Ingen on chr 5
-r <- rd_dg[ Class=="InGen" & chr == "chr5"]
+r <- rd_dg[ class!="InGen" & chr == "chr5" & meanExpr>0.1]
 r
 ```
 

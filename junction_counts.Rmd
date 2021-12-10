@@ -1,0 +1,179 @@
+---
+title: "junction_counts"
+output: html_notebook
+---
+
+```{r}
+library(data.table)
+library(stringr)
+library(parallel)
+library(GenomicRanges)
+```
+
+```{r}
+maxCores = 2
+jDataRead <- function (junctionFiles, sampleNames = NULL,
+                minOverhang = 0, strandSpecific = FALSE, 
+                illuminaStranded = FALSE, minCount = 1, maxCores = 1) {
+    stopifnot(length(junctionFiles) == length(sampleNames))
+    names(junctionFiles) <- sampleNames
+    t0<-Sys.time()
+    message("loading ", length(junctionFiles), " files..")
+    fileGRanges0 <- mclapply(junctionFiles, function(x) {
+        y <- read.delim(x, header = FALSE, 
+                     col.names = c("chr",       "start",     "end",   "strand", "count"), 
+                    colClasses = c("character", "integer", "integer", "character", "integer") 
+            )
+        y <- y[y$count >= minCount, ]
+        weird <- which(y$strand == "?")
+        if (length(weird) > 0) 
+          y <- y[-weird, ]
+        gr <- GRanges(y$chr, IRanges(y$start, y$end), strand = y$strand, 
+            count = y$count)
+        return(gr)
+     }, mc.cores = maxCores)
+    t1<-Sys.time()
+    message(">>>> ", length(sampleNames), " files loaded in: ", round(as.numeric(t1-t0, units='secs')), "s")
+    message(paste(Sys.time(), "creating master table of junctions"))
+    grList0 <- GRangesList(fileGRanges0)
+    if (illuminaStranded & strandSpecific) {
+        grList0 <- GRangesList(mclapply(grList0, function(x) {
+            strand(x) <- ifelse(strand(x) == "+", "-", "+")
+            return(x)
+        }, mc.cores = maxCores))
+    }
+    fullGR0 <- unlist(grList0)
+    if (!strandSpecific) 
+        strand(fullGR0) <- "*"
+    fullGR0 <- fullGR0[!duplicated(fullGR0)]
+    fullGR0 <- sort(fullGR0)
+    fullGR0$count <- NULL
+    t2<-Sys.time()
+    message(">>>> ",length(fullGR), " GRanges created in: ", round(as.numeric(t2-t1, units='secs')), "s")
+    message(paste(Sys.time(), "there are", length(fullGR0), "total junctions"))
+    message( ".. creating list of match lists ..")
+    jNames <- paste0(as.character(seqnames(fullGR0)), ":", start(fullGR0), 
+        "-", end(fullGR0), "(", as.character(strand(fullGR0)), 
+        ")")
+    options(warn = -1)
+    # mList is a list of match lists between each junction counts table (loaded for each file) 
+    #      and the global list of junctions accumulated in fullGR
+    mList <- mclapply(grList0, match, fullGR0, ignore.strand = !strandSpecific, 
+        mc.cores = maxCores)
+    options(warn = 0)
+    countList <- mList
+    t3 <- Sys.time()
+    M <- length(jNames)
+    message(">>>> ",length(mList), " match lists created in: ", round(as.numeric(t3-t2, units='secs')), "s")
+    cat("  filling in the count matrix ")
+    for (i in seq(along = grList)) {
+        if (i%%25 == 0) 
+            cat(".")
+        cc <- rep(0, M)
+        cc[mList[[i]]] <- fileGRanges0[[i]]$count
+        countList[[i]] <- Rle(cc)
+    }
+    cat('\n');
+    countDF <- DataFrame(countList, row.names = jNames, check.names = FALSE)
+    names(fullGR0) <- jNames
+    out <- list(countDF = countDF, anno = fullGR0)
+    t4 <- Sys.time()
+    message(">>>> Count matrix populated in: ", round(as.numeric(t4-t3, units='secs')), "s")
+    return(out)
+}
+
+```
+
+```{r}
+illuminaStranded = FALSE
+strandSpecific = T
+minOverhang = 0
+maxCores=1
+minCount=1
+
+junctionFiles=list.files(path="junction_counts", pattern=".*regtools.count", full.names = T)
+sampleNames = str_match(junctionFiles, "/(R\\d+_[^_]+)")[,2]
+jCounts0 <- jDataRead(junctionFiles, sampleNames=sampleNames,
+                      maxCores=2, strandSpecific = T)
+gc()
+```
+
+```{r}
+#chr1	17054	17232	-	48
+jDatafread <- function (junctionFiles, sampleNames = NULL,
+                minOverhang = 0, strandSpecific = FALSE, 
+                illuminaStranded = FALSE, minCount = 1, maxCores = 1) {
+    stopifnot(length(junctionFiles) == length(sampleNames))
+    names(junctionFiles) <- sampleNames
+    t0<-Sys.time()
+    message("loading ", length(junctionFiles), " files..")
+    allCounts <- NULL
+    keycols <- c('chr', 'start', 'end', 'strand')
+    for (s in sampleNames) {
+        x=junctionFiles[[s]]
+        y <- fread(file=x, sep="\t", header=F, nThread=maxCores,
+                    col.names = c( keycols, 'count'), 
+                    colClasses = c("character", "integer", "integer", "character", "integer") )
+        y <- y[ count>=1 & strand!='?']
+        setnames(y, 'count',s)
+        setkeyv(y, keycols, physical = F)
+        if (is.null(allCounts)) {
+            allCounts <- y
+        }
+          else {
+              allCounts <- merge(allCounts, y, by=keycols, all=T)
+              allCounts[ is.na(allCounts) ] <- 0
+        }
+    }
+    t1<-Sys.time()
+    message(">>>> ", length(sampleNames), " files loaded in: ", round(as.numeric(t1-t0, units='secs')), "s")
+    message(paste(Sys.time(), "creating master table of junctions"))
+    grList <- GRangesList(fileGRanges)
+    if (illuminaStranded & strandSpecific) {
+        grList <- GRangesList(mclapply(grList, function(x) {
+            strand(x) <- ifelse(strand(x) == "+", "-", "+")
+            return(x)
+        }, mc.cores = maxCores))
+    }
+    fullGR <- unlist(grList)
+    if (!strandSpecific) 
+        strand(fullGR) <- "*"
+    fullGR <- fullGR[!duplicated(fullGR)]
+    fullGR <- sort(fullGR)
+    fullGR$count <- NULL
+    t2<-Sys.time()
+    message(">>>> ",length(fullGR), " GRanges created in: ", round(as.numeric(t2-t1, units='secs')), "s")
+    message(paste(Sys.time(), "there are", length(fullGR), "total junctions"))
+    message( ".. creating list of match lists ..")
+    jNames <- paste0(as.character(seqnames(fullGR)), ":", start(fullGR), 
+        "-", end(fullGR), "(", as.character(strand(fullGR)), 
+        ")")
+    options(warn = -1)
+    # mList is a list of match lists between each junction counts table (loaded for each file) 
+    #      and the global list of junctions accumulated in fullGR
+    mList <- mclapply(grList, match, fullGR, ignore.strand = !strandSpecific, 
+        mc.cores = maxCores)
+    options(warn = 0)
+    countList <- mList
+    t3 <- Sys.time()
+    M <- length(jNames)
+    message(">>>> ",length(mList), " match lists created in: ", round(as.numeric(t3-t2, units='secs')), "s")
+    cat("  filling in the count matrix ")
+    for (i in seq(along = grList)) {
+        if (i%%25 == 0) 
+            cat(".")
+        cc <- rep(0, M)
+        cc[mList[[i]]] <- fileGRanges[[i]]$count
+        countList[[i]] <- Rle(cc)
+    }
+    cat('\n');
+    countDF <- DataFrame(countList, row.names = jNames, check.names = FALSE)
+    names(fullGR) <- jNames
+    out <- list(countDF = countDF, anno = fullGR)
+    t4 <- Sys.time()
+    message(">>>> Count matrix populated in: ", round(as.numeric(t4-t3, units='secs')), "s")
+    return(out)
+}
+
+```
+
