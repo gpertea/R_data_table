@@ -14,7 +14,8 @@ to a data frame without having to create a copy.
 
 Features of the data.table package:
 * fread, fwrite: fast and feature reach delimited file reader/writer functions
-* low-level parallelism: many common operations (sorting, indexing, joining) are internally parallelized to use multiple CPU threads
+* low-level parallelism: many common operations (sorting, indexing, joining) are 
+  internally parallelized to use multiple CPU threads
 * fast and scalable aggregations, joins, overlapping range joins, including grouping/update on join
 * fast add/update/delete columns __by reference__ by group using no data copies
 * fast data reshaping: dcast (pivot/wider/spread) and melt (unpivot/longer/gather)
@@ -35,36 +36,43 @@ Fast file reader of delimited text files, with inline column selection (not all 
 
 ```{r}
 cd_dlpfc <- fread('https://dev.libd.org/vuk1tgje7i/DLPFC_bsp2_colData.gz')
+## tables might be stored with a lot of extra columns we do not need
+head(cd_dlpfc)
+```
+
+Select columns we want to keep.
+```{r}
+selcols <- c('SAMPLE_ID', 'RNum', 'BrNum', 'Region', 'Dx', 'Age', 'Race', 'Sex', 'RIN', 'numReads', 'overallMapRate',
+             'totalAssignedGene', 'mitoRate', 'rRNA_rate')
+cd_dlpfc <- cd_dlpfc[, ..selcols] #special syntax for data.table, to differentiate from plain column names
 
 head(cd_dlpfc)
 ```
 
+We can also discard unwanted columns as the file is parsed, to save memory for large tables with many unwanted columns
 ```{r}
-#class(cd_dlpfc)
-
-selcols <- c('SAMPLE_ID', 'RNum', 'BrNum', 'Region', 'Dx', 'Age', 'Race', 'Sex', 'RIN', 'numReads', 'overallMapRate',
-             'totalAssignedGene', 'mitoRate', 'rRNA_rate')
-cd_dlpfc <- cd_dlpfc[, ..selcols] #special syntax for data.table, to differentiate from plain 
-
-## can also discard unwanted column while loading the file, to save memory for large tables
+#                                                                colums to keep    data.frame instead of data.table
 cd_dg <- fread('https://dev.libd.org/vuk1tgje7i/DG_colData.gz', select = selcols, data.table=F)
 class(cd_dg) # it is a data.frame
-## -- transform to data.table in place (without copy)
-setDT(cd_dg)
-#now the class is: "data.table" "data.frame"
-## it is faster than creating a copy: 
-##    cd_dg <- as.data.table(cd_dg)
-cd_dg
-#### -- also setDF() to convert back to data.frame, but who needs that?
-```
-Loading row data for junctions info in these datasets
-```{r}
-selrcols <- c('seqnames', 'start', 'end', 'strand', 'Class', 'newGeneID', 'newGeneSymbol', 'meanExprs')
-rd_dlpfc <- fread('https://dev.libd.org/vuk1tgje7i/DLPFC_bsp2_rowData.gz', select=selrcols)
-# also supports col.names and colClasses parameters
-rd_dg <- fread('https://dev.libd.org/vuk1tgje7i/DG_rowData.gz', select=selrcols)
 
-## --- data.table::setnames is a nice way to rename some columns, works on data frames too
+## -- transform to data.table in-place
+setDT(cd_dg)
+class(cd_dg)  # "data.table" "data.frame"
+## it is faster and less memory risky than creating a copy: 
+##     cd_dg = as.data.table(cd_dg)
+
+#### -- there is setDF() to convert back to data.frame
+```
+Loading row data for junction features in these datasets
+```{r} 
+
+selrcols <- c('seqnames', 'start', 'end', 'strand', 'Class', 'newGeneID', 'newGeneSymbol', 'meanExprs')
+## tab delimited files derived from rowRanges(rse) GRanges object
+rd_dlpfc <- fread('https://dev.libd.org/vuk1tgje7i/DLPFC_bsp2_rowData.gz', select=selrcols)
+rd_dg <- fread('https://dev.libd.org/vuk1tgje7i/DG_rowData.gz', select=selrcols)
+# also supports col.names and colClasses parameters, useful for headerless tab-delimited files
+
+###-- data.table::setnames() is a nice way to rename some columns, works on data frames too
 # setnames(df, oldnames, newnames)
 newcolnames=c('chr', 'start', 'end', 'strand','class', 'gencodeID', 'gene', 'meanExpr')
 setnames(rd_dg, selrcols, newcolnames)
@@ -78,12 +86,11 @@ Other differences from data frames:
 
 ## Column subsetting 
 ```{r}
-
 ## subsetting columns:
 head(rd_dg[ , c("chr", "start", "end", "strand")])
-# same with quote-free syntax:
-head(rd_dg[ , .(chr, strand, start, end)])
-head(rd_dg[ , list(chr, strand, start, end)])
+# same result using quotes-free syntax:
+head(rd_dg[ , .(chr, start, end, strand)])
+head(rd_dg[ , list(chr, start, end, strand)])
 ```
 
 ## Adding new columns
