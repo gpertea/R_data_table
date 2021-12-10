@@ -9,16 +9,17 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## What is data.table?
 
-data.table is an R package that provides an enhanced version of the data frames.
+data.table is an R package that provides an enhanced version of R data frames. setDT() can attach this enhanced functionality 
+to a data frame without having to create a copy.
+
 Features of the data.table package:
 * fread, fwrite: fast and feature reach delimited file reader/writer functions
-* low-level parallelism: many common operations are internally parallelized to use multiple CPU threads
-* fast and scalable aggregations, joins, overlapping range joins (similar to IRanges::findOverlaps), including grouping on join and update on join
-* fast add/update/delete columns __by reference__ by group using no copies at all
+* low-level parallelism: many common operations (sorting, indexing, joining) are internally parallelized to use multiple CPU threads
+* fast and scalable aggregations, joins, overlapping range joins, including grouping/update on join
+* fast add/update/delete columns __by reference__ by group using no data copies
 * fast data reshaping: dcast (pivot/wider/spread) and melt (unpivot/longer/gather)
 
-
-Most recent version of dtplyr can be installed like this:
+For dtplyr (using dplyr grammar to trigger data.table operations), most recent version can be installed like this:
 `devtools::install_github("tidyverse/dtplyr")`
 
 ```{r}
