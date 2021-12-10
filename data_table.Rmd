@@ -18,15 +18,14 @@ Features of the data.table package:
 * fast data reshaping: dcast (pivot/wider/spread) and melt (unpivot/longer/gather)
 
 
-Make sure a recent version of dtplyr is also installed:
+Most recent version of dtplyr can be installed like this:
 `devtools::install_github("tidyverse/dtplyr")`
 
 ```{r}
-#library(SummarizedExperiment)
+#devtools::install_github("tidyverse/dtplyr") # if needed
 library(data.table)
-#devtools::install_github("tidyverse/dtplyr") -- if needed
-library(dtplyr)
 ```
+
 ## fread function
 Fast file reader of delimited text files, with inline column selection (not all columns are loaded).
 * can take an url to fetch a remote file, instead of a local file path.
@@ -34,7 +33,7 @@ Fast file reader of delimited text files, with inline column selection (not all 
 * fread can be up to 5 times faster than read.delim() when loading hundred of files (as it's the case in jaffelab::junctionCount())
 
 ```{r}
-cd_dlpfc <- fread('https://dev.libd.org/vuk1tgje7i/DLPFC_colData.gz')
+cd_dlpfc <- fread('https://dev.libd.org/vuk1tgje7i/DLPFC_bsp2_colData.gz')
 
 head(cd_dlpfc)
 ```
@@ -44,14 +43,7 @@ head(cd_dlpfc)
 
 selcols <- c('SAMPLE_ID', 'RNum', 'BrNum', 'Region', 'Dx', 'Age', 'Race', 'Sex', 'RIN', 'numReads', 'overallMapRate',
              'totalAssignedGene', 'mitoRate', 'rRNA_rate')
-cd_dlpfc <- cd_dlpfc[, ..selcols]
-
-## can also remove unwanted columns in-place, without making a copy
-cd_dlpfc <- fread('https://dev.libd.org/vuk1tgje7i/DLPFC_colData.gz')
-exclude_cols=setdiff(colnames(cd_dlpfc), selcols)
-cd_dlpfc[, (exclude_cols) := NULL]
-## same with:
-##   set(cd_dlpfc, , exclude_cols, NULL)
+cd_dlpfc <- cd_dlpfc[, ..selcols] #special syntax for data.table, to differentiate from plain 
 
 ## can also discard unwanted column while loading the file, to save memory for large tables
 cd_dg <- fread('https://dev.libd.org/vuk1tgje7i/DG_colData.gz', select = selcols, data.table=F)
@@ -61,86 +53,184 @@ setDT(cd_dg)
 #now the class is: "data.table" "data.frame"
 ## it is faster than creating a copy: 
 ##    cd_dg <- as.data.table(cd_dg)
+cd_dg
 #### -- also setDF() to convert back to data.frame, but who needs that?
 ```
-
+Loading row data for junctions info in these datasets
 ```{r}
 selrcols <- c('seqnames', 'start', 'end', 'strand', 'Class', 'newGeneID', 'newGeneSymbol', 'meanExprs')
-rd_dlpfc <- fread('https://dev.libd.org/vuk1tgje7i/DLPFC_rowData.gz', select=selrcols)
+rd_dlpfc <- fread('https://dev.libd.org/vuk1tgje7i/DLPFC_bsp2_rowData.gz', select=selrcols)
 # also supports col.names and colClasses parameters
-
 rd_dg <- fread('https://dev.libd.org/vuk1tgje7i/DG_rowData.gz', select=selrcols)
 
-## data.table::setnames is a nice way to rename some columns, works on data frames too
-# setnames(df or dt, oldnames, newnames)
+## --- data.table::setnames is a nice way to rename some columns, works on data frames too
+# setnames(df, oldnames, newnames)
 newcolnames=c('chr', 'start', 'end', 'strand','class', 'gencodeID', 'gene', 'meanExpr')
 setnames(rd_dg, selrcols, newcolnames)
 setnames(rd_dlpfc, selrcols, newcolnames)
 
 ```
 
-Differences from data frames:
+Other differences from data frames:
 * columns of type character are not converted to factors by default
-* data.table does not support row names! (during conversion, row names can be assigned a new column) 
-* subsetting recognizes column names without the data frame prefix
-
+* data.table does not support row names! (during conversion from data.frame, row names can be assigned a new column) 
 
 ## Column subsetting 
 ```{r}
 
 ## subsetting columns:
 head(rd_dg[ , c("chr", "start", "end", "strand")])
-# same with:
+# same with quote-free syntax:
 head(rd_dg[ , .(chr, strand, start, end)])
 head(rd_dg[ , list(chr, strand, start, end)])
 ```
 
 ## Adding new columns
 ```{r}
-## old data.frame syntax:
+## old data.frame syntax -- add a locus/location column for the junction data:
+
 rd_dg$loc = paste0(rd_dg$chr, ':', rd_dg$start, '-', rd_dg$end,  '(',rd_dg$strand,')' )
 
-## data.table syntax
-# first let's delete this column in-place
-rd_dg[, loc:=NULL]
-rd_dg[, loc:= paste0(chr,':',start,'-',end,'(',strand,')') ]
+## data.table syntax is again easier as column names are directly recognized
+rd_dg[, loc:=NULL] # let's delete this column in-place
+# and add it again using an easier syntax
+rd_dg[, loc:= paste0(chr,':',start,'-',end,'(',strand,')') ] 
 
 ## reorder columns such that the new loc column is first
 setcolorder(rd_dg, c('loc', setdiff(colnames(rd_dg), 'loc')))
-
 head(rd_dg)
 
-## - let's do the same for rd_dlpfc
+## --- for the earlier colData when we can remove and reorder multiple columns in a similar manner
+## we can also remove unwanted columns in-place, without making a temporary copy for the assignment
+selcols <- c('SAMPLE_ID', 'RNum', 'BrNum', 'Region', 'Dx', 'Age', 'Race', 'Sex', 'RIN', 'numReads', 'overallMapRate',
+             'totalAssignedGene', 'mitoRate', 'rRNA_rate')
+cd_dlpfc <- fread('https://dev.libd.org/vuk1tgje7i/DLPFC_bsp2_colData.gz')
+exclude_cols=setdiff(colnames(cd_dlpfc), selcols) # difference vector: colnames(cd_dlpfc) - selcols
+cd_dlpfc[, (exclude_cols) := NULL] # syntax for removing a bunch of columns at once
+## same with:
+##   set(cd_dlpfc, , exclude_cols, NULL) ## set function
+head(cd_dlpfc)
+## - set column order to how we have it in selcols
+setcolorder(cd_dlpfc, selcols)
+
+
+## -- back to rowdata for junctions
+## - let's add loc column the same for DLPFC rowdata we loaded earlier
 rd_dlpfc[, loc:= paste0(chr,':',start,'-',end,'(',strand,')') ]
 ## reorder columns such that the new loc column is first
 setcolorder(rd_dlpfc, c('loc', setdiff(colnames(rd_dg), 'loc')))
 
-
 ```
-
-
-
 
 
 ##  Row filtering
 ```{r}
-
-
+## as opposed to the data.frame syntax, column names are recognized as variables within the [ ] operator (like in subset() )
 ## select all novel junctions for gene SNX19
+rd_dg[ class!='InGen' & gene=='SNX19' & meanExpr>0.1]
 
-rd_dg[ class!='InGen' & gene=='SNX19' & mean, ]
 
 ```
 
-## General subsetting strategy: DT[ i, j, by ]
-
-`  DT[          i,                 j,                    by]     `
-`         subset rows ,  select/calculate columns,     group by   `
+## General selection strategy: DT[ i, j, by ]
+      DT[           i,                 j,                    by]     
+           subset rows ,  select/calculate columns,     grouping  
 
 ```{r}
-table(rd_dg$Class)
-## get all junctions of Class Ingen on chr 5
-r <- rd_dg[ class!="InGen" & chr == "chr5" & meanExpr>0.1]
-r
+table(rd_dg$class)
+## get all novel junctions of SNX19 with mean expression > 0.1, listed by class
+rd_dg[ class!='InGen' & gene=='SNX19' & meanExpr>0.1] [order(class) ]
+## order by class and decreasing meanExpr:
+rd_dg[ class!='InGen' & gene=='SNX19' & meanExpr>0.1] [order(class, -meanExpr)]
+
+## display just row counts in each group: special variable .N, 
+rd_dg[ class!='InGen' & gene=='SNX19' & meanExpr>0.1, .N, by=class ]
+
+## mean expression per novel class
+rd_dg[ class!='InGen' & gene=='SNX19', .(class_mean = mean(meanExpr)), by=class]
+
+## total expression per novel class
+rd_dg[ class!='InGen' & gene=='SNX19', .(class_sum = sum(meanExpr)), by=class
+      ] [order(-class_sum)]
+
+## show multiple calculated columns for the current grouping:
+## mean & total expression per novel class
+rd_dg[ class!='InGen' & gene=='SNX19', 
+       .(class_mean = mean(meanExpr), class_sum = sum(meanExpr)), 
+          by=class]
+
+
 ```
 
+Using .SD special designation : .SD = Subset of Data for the current group (a data.table with the group rows)
+
+```{r}
+rd_dg[ class!='InGen' & (gene=='SNX19'| gene=='TCF4') & meanExpr>0.1, .SD, by=.(gene, class) ]
+
+## .SDcols can be used to limit .SD to specific columns so we can apply the same calculation function 
+## to each column
+## for colData metrics, calculate average values per group (Dx, Race)
+cd_dlpfc[  Age<=62 & Age>=16 ,   lapply(.SD, mean), by=.(Dx, Race), 
+           .SDcols=c('Age','numReads', 'totalAssignedGene', 'rRNA_rate', 'mitoRate') ][order(Dx, Race)]
+
+
+
+```
+## fast subsetting using keys
+```{r}
+head(rd_dg)
+nrow(rd_dg)
+nrow(rd_dlpfc)
+#
+setkey(rd_dg, loc)
+setkey(rd_dlpfc, loc)
+## this will create an intersection set, or "inner join": junctions shared between the two sets
+nrow(merge(rd_dg, rd_dlpfc, by='loc'))
+
+## if we want to create a "full outer join" union of two sets, placing NAs where a set misses values
+nrow(merge(rd_dg, rd_dlpfc, by='loc', all=T))
+head(merge(rd_dg[, .(loc, DG=meanExpr) ], 
+           rd_dlpfc[, .(loc, DLPFC=meanExpr) ], by='loc', all=T))
+
+## join
+## let's pretend we don't have the loc column, so we join by: chr, start, end, strand
+joincols=c('chr', 'start', 'end', 'strand')
+selcols=c(joincols, 'meanExpr')
+setkeyv(rd_dg, joincols, physical = F)
+setkeyv(rd_dlpfc, joincols, physical = F)
+mrgdt <- merge(rd_dlpfc[ , ..selcols ][, DLPFC:=meanExpr][, meanExpr:=NULL], 
+           rd_dg[ , ..selcols ][,DG:=meanExpr][, meanExpr:=NULL], by=joincols, all=T)
+
+head(mrgdt)
+## this is similar to the problem of merging sets of junctions across datasets
+## the junctions that had no match in the other dataset will have NA in the respective column
+## so for expression levels we could set it to 0 (junction was not expressed in that dataset)
+mrgdt[ is.na(mrgdt) ] = 0
+
+mrgdt
+```
+
+## dtplyr
+  R wrapper for data.table fast filtering operations to use syntax familiar to dplyr 
+  Translates dplyr pipe chaining into data.table operations and chaining
+  
+Caveats:
+  * some data.table expression have no dplyr equivalent (e.g. cross joins, rolling joins)
+  * dplyr chaining involves copy operations (potential memory hazard for large tables), 
+    e.g. mutate() does not modify in-place
+  
+```{r}
+rd_dg[ class!='InGen' & (gene=='SNX19' | gene=='TCF4') , 
+       .(class_mean = mean(meanExpr)), by=.(gene, class)][order(gene,class)]
+## written in dtplyr:
+library(dtplyr)
+library(dplyr)
+#rd_dg2 <- lazy_dt(rd_dg) #lazy evaluation, track operations?
+
+rd_dg %>% filter(class!='InGen' &  (gene=='SNX19' | gene=='TCF4') ) %>%
+  group_by(gene, class)  %>% summarise(class_mean = mean(meanExpr)) %>% as.data.table()
+
+```
+
+  
+  
