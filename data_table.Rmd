@@ -96,7 +96,6 @@ head(rd_dg[ , list(chr, start, end, strand)])
 ## Adding new columns
 ```{r}
 ## old data.frame syntax -- add a locus/location column for the junction data:
-
 rd_dg$loc <- paste0(rd_dg$chr, ':', rd_dg$start, '-', rd_dg$end,  '(',rd_dg$strand,')' )
 
 ## data.table syntax is again easier as column names are directly recognized
@@ -239,6 +238,3 @@ rd_dg %>% filter(class!='InGen' &  (gene=='SNX19' | gene=='TCF4') ) %>%
   group_by(gene, class)  %>% summarise(class_mean = mean(meanExpr)) %>% as.data.table()
 
 ```
-
-  
-  
